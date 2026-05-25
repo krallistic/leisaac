@@ -120,6 +120,9 @@ class GenericDataRecorder:
             pickle.dump(self.buffer, f)
         self.buffer = []
 
+    def clear_episode_buffer(self):
+        self.buffer = []
+
     def finalize(self):
         print("Dataset finalized.")
 
