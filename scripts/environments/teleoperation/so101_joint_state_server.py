@@ -159,8 +159,14 @@ def main():
                 time.sleep(sleep_t)
     except KeyboardInterrupt:
         print(f"\nDone: {count} msgs")
+    except ConnectionError as e:
+        print(f"\nConnection lost after {count} msgs: {e}")
+        print("Try: power-cycle the arm, check the USB cable, use a powered hub.")
     finally:
-        bus.disconnect()
+        try:
+            bus.disconnect()
+        except Exception:
+            pass
         pub.close()
         ctx.term()
 

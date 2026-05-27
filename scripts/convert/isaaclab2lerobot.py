@@ -118,6 +118,9 @@ def add_episode(
     task: str,
 ):
     all_data = episode.data
+    if "actions" not in all_data:
+        print(f"Episode {episode.env_id} has no actions (empty recording), skip it")
+        return False
     num_frames = all_data["actions"].shape[0]
     if num_frames < 10:
         print(f"Episode {episode.env_id} has less than 10 frames, skip it")
