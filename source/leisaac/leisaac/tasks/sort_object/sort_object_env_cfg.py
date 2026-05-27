@@ -7,7 +7,7 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
 
 from leisaac.assets.scenes.sort_object import SORT_OBJECT_SCENE_CFG, SORT_OBJECT_USD_PATH
-from leisaac.utils.domain_randomization import domain_randomization, randomize_object_uniform
+from leisaac.utils.domain_randomization import domain_randomization
 from leisaac.utils.general_assets import parse_usd_and_create_subassets
 
 from ..template import (
@@ -23,15 +23,25 @@ _BOX_USD_PATH = str(Path(SORT_OBJECT_USD_PATH).parent / "box" / "box.usd")
 # Five candidate spawn positions in env-local frame (x, y, z).
 # Table surface z ≈ 0.04 m; cube rests at z ≈ 0.062 m.
 # Box A (box)  centre: (0.478, -0.310) footprint ±0.075 m → x ∈ [0.403, 0.553], y ∈ [-0.385, -0.235]
-# Box B (box2) centre: (0.478, -0.120) footprint ±0.075 m → x ∈ [0.403, 0.553], y ∈ [-0.195, -0.045]
-# All locations below fall outside both footprints.
+# Box B (box2) centre: (0.478, -0.158) footprint ±0.075 m → x ∈ [0.403, 0.553], y ∈ [-0.233, -0.083]
+#   Gap between boxes: 2 mm (almost touching).
+# All locations below are to the left of both boxes (x < 0.40), clustered tightly
+# around (0.28, -0.24) — the midpoint between the two boxes in y.
 _OBJECT_SPAWN_LOCATIONS: list[tuple[float, float, float]] = [
-    (0.28, -0.31, 0.062),  # left of both boxes
-    (0.25, -0.18, 0.062),  # left, between the two boxes in y
-    (0.20, -0.42, 0.062),  # left, behind Box A
-    (0.35, -0.15, 0.062),  # left, in front of Box B
-    (0.35, -0.48, 0.062),  # left, well behind Box A
+    (0.28, -0.24, 0.062),  # centre
+    (0.25, -0.22, 0.062),  # left, forward
+    (0.25, -0.28, 0.062),  # left, back
+    (0.31, -0.20, 0.062),  # right, forward
+    (0.31, -0.30, 0.062),  # right, back
 ]
+
+# RGB diffuse colors for procedurally-spawned shapes (rectangle, cylinder).
+_COLOR_RGB: dict[str, tuple[float, float, float]] = {
+    "red":    (0.8, 0.1, 0.1),
+    "green":  (0.1, 0.7, 0.1),
+    "blue":   (0.1, 0.3, 0.9),
+    "yellow": (0.9, 0.8, 0.0),
+}
 
 # All valid (shape, color) combinations and their pre-computed targets.
 # Used both for the sorting rule and for the startup print.
@@ -57,6 +67,45 @@ def _sorting_target(shape: str, color: str) -> str:
     raise ValueError(f"Unknown (shape, color) combination: ({shape!r}, {color!r})")
 
 
+def _make_procedural_object_cfg(shape: str, color: str) -> RigidObjectCfg:
+    """Return a RigidObjectCfg for a procedurally-spawned rectangle or cylinder.
+
+    The object is placed at the first spawn location as its default state;
+    the reset event (discrete_location_term) moves it to a random location
+    each episode.
+    """
+    visual = sim_utils.PreviewSurfaceCfg(diffuse_color=_COLOR_RGB[color])
+    rigid  = sim_utils.RigidBodyPropertiesCfg()
+    mass   = sim_utils.MassPropertiesCfg(mass=0.05)
+    coll   = sim_utils.CollisionPropertiesCfg()
+
+    if shape == "rectangle":
+        spawn_cfg = sim_utils.CuboidCfg(
+            size=(0.08, 0.05, 0.04),
+            visual_material=visual,
+            rigid_props=rigid,
+            mass_props=mass,
+            collision_props=coll,
+        )
+    elif shape == "cylinder":
+        spawn_cfg = sim_utils.CylinderCfg(
+            radius=0.025,
+            height=0.05,
+            visual_material=visual,
+            rigid_props=rigid,
+            mass_props=mass,
+            collision_props=coll,
+        )
+    else:
+        raise ValueError(f"No procedural spawner for shape {shape!r}")
+
+    return RigidObjectCfg(
+        prim_path=f"{{ENV_REGEX_NS}}/{shape}",
+        spawn=spawn_cfg,
+        init_state=RigidObjectCfg.InitialStateCfg(pos=_OBJECT_SPAWN_LOCATIONS[0]),
+    )
+
+
 def _print_startup_info(shape: str, color: str, target_box: str) -> None:
     sep = "=" * 58
     target_label = "Area A  (prim: box)" if target_box == "box" else "Area B  (prim: box2)"
@@ -72,7 +121,7 @@ def _print_startup_info(shape: str, color: str, target_box: str) -> None:
         marker = "  <-- active" if (s == shape and c == color) else ""
         print(f"[SortObject]  {s:<12}  {c:<10}  {tgt}{marker}")
     print(f"[SortObject]")
-    print(f"[SortObject]  Pickup locations (5, noise std = 0.005 m):")
+    print(f"[SortObject]  Pickup locations (5, noise std = 0.001 m):")
     for i, loc in enumerate(_OBJECT_SPAWN_LOCATIONS, 1):
         print(f"[SortObject]    {i}. x={loc[0]:.3f}  y={loc[1]:.3f}  z={loc[2]:.3f}")
     print(f"[SortObject] {sep}\n")
@@ -86,12 +135,12 @@ class SortObjectSceneCfg(SingleArmTaskSceneCfg):
 
     # Area B: spawned from the same box USD at a new prim path.
     # Area A (box) is extracted from scene.usd by parse_usd_and_create_subassets.
-    # Box A centre: (0.478, -0.310); Box B at (0.478, -0.120) → ~4 cm gap.
+    # Box A centre: (0.478, -0.310); Box B at (0.478, -0.158) → ~2 mm gap (almost touching).
     box2: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/box2",
         spawn=sim_utils.UsdFileCfg(usd_path=_BOX_USD_PATH),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.478, -0.120, 0.046),
+            pos=(0.478, -0.158, 0.046),
         ),
     )
 
@@ -166,8 +215,15 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
 
         self.scene.robot.init_state.pos = (0.35, -0.64, 0.01)
 
-        # Populates scene.cube, scene.box (and scene.counter_right_main_group) from scene.usd.
-        parse_usd_and_create_subassets(SORT_OBJECT_USD_PATH, self)
+        if self.object_shape == "cube":
+            # Cube lives in scene.usd — loads scene.cube, scene.box, scene.counter...
+            parse_usd_and_create_subassets(SORT_OBJECT_USD_PATH, self)
+        else:
+            # Non-cube variants: load scene infrastructure (box, counter) but skip
+            # the cube prim, then add the procedural shape at scene level.
+            parse_usd_and_create_subassets(SORT_OBJECT_USD_PATH, self, exclude_name_list=["cube"])
+            setattr(self.scene, self.object_shape,
+                    _make_procedural_object_cfg(self.object_shape, self.object_color))
 
         # Wire the termination to the correct target box and object prim.
         target_box = _sorting_target(self.object_shape, self.object_color)
@@ -179,21 +235,11 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
         domain_randomization(
             self,
             random_options=[
-                # Object spawns at one of five fixed positions + small noise each episode.
+                # Object spawns at one of five tightly-clustered positions + tiny noise.
                 mdp.discrete_location_term(
                     self.object_shape,
                     locations=_OBJECT_SPAWN_LOCATIONS,
-                    position_noise_std=0.005,
-                ),
-                # Both boxes get a small uniform jitter so the robot cannot memorise
-                # exact target positions.
-                randomize_object_uniform(
-                    "box",
-                    pose_range={"x": (-0.02, 0.02), "y": (-0.02, 0.02), "z": (0.0, 0.0)},
-                ),
-                randomize_object_uniform(
-                    "box2",
-                    pose_range={"x": (-0.02, 0.02), "y": (-0.02, 0.02), "z": (0.0, 0.0)},
+                    position_noise_std=0.001,
                 ),
             ],
         )

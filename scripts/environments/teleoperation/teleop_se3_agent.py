@@ -59,6 +59,18 @@ parser.add_argument(
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed for the environment.")
+parser.add_argument(
+    "--object_shape",
+    type=str,
+    default=None,
+    help="Override object shape for sorting tasks (cube, rectangle, cylinder).",
+)
+parser.add_argument(
+    "--object_color",
+    type=str,
+    default=None,
+    help="Override object color for sorting tasks (red, green, blue, yellow).",
+)
 parser.add_argument("--sensitivity", type=float, default=1.0, help="Sensitivity factor.")
 
 # recorder_parameter
@@ -157,6 +169,14 @@ def main():  # noqa: C901
         os.makedirs(output_dir)
 
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
+
+    # Apply sorting-task overrides when --object_shape / --object_color are given.
+    # Works for any task whose config exposes apply_object_variant(); ignored otherwise.
+    if (args_cli.object_shape or args_cli.object_color) and hasattr(env_cfg, "apply_object_variant"):
+        shape = args_cli.object_shape or env_cfg.object_shape
+        color = args_cli.object_color or env_cfg.object_color
+        env_cfg.apply_object_variant(shape, color)
+
     env_cfg.use_teleop_device(args_cli.teleop_device)
     env_cfg.seed = args_cli.seed if args_cli.seed is not None else int(time.time())
     task_name = args_cli.task
