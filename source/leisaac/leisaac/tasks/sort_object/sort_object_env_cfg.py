@@ -35,6 +35,10 @@ _OBJECT_SPAWN_LOCATIONS: list[tuple[float, float, float]] = [
     (0.31, -0.30, 0.062),  # right, back
 ]
 
+# Where to park the cube when it isn't the active object (non-cube variants).
+# Placed far outside the robot workspace so it never interferes.
+_CUBE_PARKED_LOCATION: tuple[float, float, float] = (0.0, 5.0, 1.0)
+
 # RGB diffuse colors for procedurally-spawned shapes (rectangle, cylinder).
 _COLOR_RGB: dict[str, tuple[float, float, float]] = {
     "red":    (0.8, 0.1, 0.1),
@@ -215,13 +219,12 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
 
         self.scene.robot.init_state.pos = (0.35, -0.64, 0.01)
 
-        if self.object_shape == "cube":
-            # Cube lives in scene.usd — loads scene.cube, scene.box, scene.counter...
-            parse_usd_and_create_subassets(SORT_OBJECT_USD_PATH, self)
-        else:
-            # Non-cube variants: load scene infrastructure (box, counter) but skip
-            # the cube prim, then add the procedural shape at scene level.
-            parse_usd_and_create_subassets(SORT_OBJECT_USD_PATH, self, exclude_name_list=["cube"])
+        # Always load the full scene.usd (cube is baked in and can't be excluded
+        # at load time). Registering scene.cube lets us control its position.
+        parse_usd_and_create_subassets(SORT_OBJECT_USD_PATH, self)
+
+        if self.object_shape != "cube":
+            # Add the procedural shape alongside the already-registered cube.
             setattr(self.scene, self.object_shape,
                     _make_procedural_object_cfg(self.object_shape, self.object_color))
 
@@ -232,17 +235,23 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
 
         _print_startup_info(self.object_shape, self.object_color, target_box)
 
-        domain_randomization(
-            self,
-            random_options=[
-                # Object spawns at one of five tightly-clustered positions + tiny noise.
+        reset_events = [
+            mdp.discrete_location_term(
+                self.object_shape,
+                locations=_OBJECT_SPAWN_LOCATIONS,
+                position_noise_std=0.001,
+            ),
+        ]
+        if self.object_shape != "cube":
+            # Park the cube far outside the workspace so it never interferes.
+            reset_events.append(
                 mdp.discrete_location_term(
-                    self.object_shape,
-                    locations=_OBJECT_SPAWN_LOCATIONS,
-                    position_noise_std=0.001,
-                ),
-            ],
-        )
+                    "cube",
+                    locations=[_CUBE_PARKED_LOCATION],
+                    position_noise_std=0.0,
+                )
+            )
+        domain_randomization(self, random_options=reset_events)
 
 
 # ── Per-variant subclasses ────────────────────────────────────────────────────
