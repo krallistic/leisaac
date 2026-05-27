@@ -128,9 +128,16 @@ def add_episode(
 
     episode_list = split_episode(episode, num_frames)
     # skip the first 5 frames
+    first_frame = True
     for frame_index in tqdm(range(5, num_frames), desc="Processing each frame"):
         frame = env.cfg.build_lerobot_frame(episode_list[frame_index], dataset_cfg)
         predefined_task = frame.pop("task")
+        if first_frame:
+            print(f"[DEBUG] First frame keys: {list(frame.keys())}")
+            for k, v in frame.items():
+                shape = v.shape if hasattr(v, "shape") else f"(scalar={v})"
+                print(f"[DEBUG]   {k}: shape={shape}, dtype={getattr(v, 'dtype', type(v).__name__)}")
+            first_frame = False
         dataset.add_frame(frame=frame, task=predefined_task if task is None else task)
     return True
 
@@ -149,6 +156,11 @@ def convert_isaaclab_to_lerobot():
         robot_type=env_cfg.robot_name,
     )
     dataset_cfg.features = build_feature_from_env(env, dataset_cfg)
+
+    print(f"[DEBUG] action_align={dataset_cfg.action_align}")
+    print(f"[DEBUG] Features registered in dataset:")
+    for feat_name, feat in dataset_cfg.features.items():
+        print(f"[DEBUG]   {feat_name}: shape={feat.get('shape')}, dtype={feat.get('dtype')}")
 
     dataset = LeRobotDataset.create(
         repo_id=dataset_cfg.repo_id,

@@ -52,14 +52,12 @@ def build_feature_from_env(env: ManagerBasedEnv | DirectRLEnv, dataset_cfg: LeRo
     else:
         action_dim = env.actions.shape[-1]
 
-    if action_dim != len(default_feature_joint_names):
-        # [A bit tricky, currently works because the action dimension matches the joints only when we use leader control]
-        action_joint_names = [f"dim_{index}" for index in range(action_dim)]
-        dataset_cfg.action_align = False
-    else:
-        action_joint_names = default_feature_joint_names
-        dataset_cfg.action_align = True
-    features["action"] = asdict(StateFeatureItem(dtype="float32", shape=(action_dim,), names=action_joint_names))
+    # Always store joint-space actions (6D) regardless of teleop device.
+    # build_lerobot_frame uses joint_pos_target when action_align=True, which gives
+    # the IK-resolved joint targets even for keyboard/gamepad recordings.
+    action_joint_names = default_feature_joint_names
+    dataset_cfg.action_align = True
+    features["action"] = asdict(StateFeatureItem(dtype="float32", shape=(len(default_feature_joint_names),), names=action_joint_names))
     features["observation.state"] = asdict(
         StateFeatureItem(dtype="float32", shape=(len(default_feature_joint_names),), names=default_feature_joint_names)
     )
