@@ -202,10 +202,14 @@ class SingleArmTaskEnvCfg(ManagerBasedRLEnvCfg):
 
     def build_lerobot_frame(self, episode_data: EpisodeData, dataset_cfg: LeRobotDatasetCfg) -> dict:
         obs_data = episode_data._data["obs"]
-        action = episode_data._data["actions"][-1]
         if dataset_cfg.action_align:
+            # Use joint_pos_target (6D, radians) — the IK-resolved joint target the robot
+            # actually followed. This is compatible with so101leader eval regardless of how
+            # the demo was recorded (keyboard IK or leader arm).
+            action = obs_data["joint_pos_target"][-1]
             processed_action = convert_leisaac_action_to_lerobot(action.unsqueeze(0)).squeeze(0)
         else:
+            action = episode_data._data["actions"][-1]
             processed_action = action.cpu().numpy()
         frame = {
             "action": processed_action,
