@@ -86,6 +86,16 @@ parser.add_argument(
 
 parser.add_argument("--recalibrate", action="store_true", help="recalibrate SO101-Leader or Bi-SO101Leader")
 parser.add_argument("--quality", action="store_true", help="whether to enable quality render mode.")
+parser.add_argument(
+    "--second_viewport",
+    type=str,
+    default=None,
+    metavar="SENSOR_OR_PATH",
+    help=(
+        "Open a second viewport in the streamed UI. Pass a scene sensor name (e.g. 'front', 'wrist') "
+        "or a full USD prim path. Useful for teleoperation depth perception."
+    ),
+)
 parser.add_argument("--use_lerobot_recorder", action="store_true", help="whether to use lerobot recorder.")
 parser.add_argument("--lerobot_dataset_repo_id", type=str, default=None, help="Lerobot Dataset repository ID.")
 parser.add_argument("--lerobot_dataset_fps", type=int, default=30, help="Lerobot Dataset frames per second.")
@@ -156,6 +166,30 @@ def manual_terminate(env: ManagerBasedRLEnv | DirectRLEnv, success: bool):
         env.termination_manager.compute()
     elif hasattr(env, "_get_dones"):
         env.cfg.return_success_status = success
+
+
+def _open_second_viewport(env, sensor_or_path: str) -> None:
+    """Open a second Kit viewport window pointed at a camera.
+
+    sensor_or_path: either a scene sensor name (e.g. 'front', 'wrist') whose
+    prim path is resolved from the live scene, or a full USD prim path starting
+    with '/'. Both viewport windows appear side-by-side in the WebRTC stream.
+    """
+    import omni.kit.viewport.utility as vp_utils
+    from pxr import Sdf
+
+    if sensor_or_path.startswith("/"):
+        cam_path = sensor_or_path
+    else:
+        try:
+            cam_path = env.scene[sensor_or_path].prim_paths[0]
+        except (KeyError, AttributeError, IndexError) as exc:
+            print(f"[WARN] --second_viewport: cannot resolve sensor '{sensor_or_path}': {exc}")
+            return
+
+    vp2 = vp_utils.create_viewport_window("Viewport 2")
+    vp2.viewport_api.camera_path = Sdf.Path(cam_path)
+    print(f"[INFO] Second viewport opened — camera: {cam_path}")
 
 
 def main():  # noqa: C901
@@ -332,6 +366,9 @@ def main():  # noqa: C901
         env.initialize()
     env.reset()
     teleop_interface.reset()
+
+    if args_cli.second_viewport:
+        _open_second_viewport(env, args_cli.second_viewport)
 
     resume_recorded_demo_count = 0
     if args_cli.record and args_cli.resume:
