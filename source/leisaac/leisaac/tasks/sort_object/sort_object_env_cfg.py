@@ -22,17 +22,18 @@ _BOX_USD_PATH = str(Path(SORT_OBJECT_USD_PATH).parent / "box" / "box.usd")
 
 # Five candidate spawn positions in env-local frame (x, y, z).
 # Table surface z ≈ 0.04 m; cube rests at z ≈ 0.062 m.
-# Box A (box)  centre: (0.478, -0.310) footprint ±0.075 m → x ∈ [0.403, 0.553], y ∈ [-0.385, -0.235]
-# Box B (box2) centre: (0.478, -0.158) footprint ±0.075 m → x ∈ [0.403, 0.553], y ∈ [-0.233, -0.083]
+# Box A (box)  centre: (0.478, -0.460) footprint ±0.075 m → x ∈ [0.403, 0.553], y ∈ [-0.535, -0.385]
+# Box B (box2) centre: (0.478, -0.308) footprint ±0.075 m → x ∈ [0.403, 0.553], y ∈ [-0.383, -0.233]
 #   Gap between boxes: 2 mm (almost touching).
 # All locations below are to the left of both boxes (x < 0.40), clustered tightly
-# around (0.28, -0.24) — the midpoint between the two boxes in y.
+# around (0.28, -0.39) — the midpoint between the two boxes in y.
+# Distances from robot base (0.35, -0.64): Box A ≈ 0.22 m, Box B ≈ 0.36 m, spawns ≈ 0.26 m.
 _OBJECT_SPAWN_LOCATIONS: list[tuple[float, float, float]] = [
-    (0.28, -0.24, 0.062),  # centre
-    (0.25, -0.22, 0.062),  # left, forward
-    (0.25, -0.28, 0.062),  # left, back
-    (0.31, -0.20, 0.062),  # right, forward
-    (0.31, -0.30, 0.062),  # right, back
+    (0.28, -0.39, 0.062),  # centre
+    (0.25, -0.37, 0.062),  # left, forward
+    (0.25, -0.43, 0.062),  # left, back
+    (0.31, -0.35, 0.062),  # right, forward
+    (0.31, -0.45, 0.062),  # right, back
 ]
 
 # Where to park the cube when it isn't the active object (non-cube variants).
@@ -138,13 +139,14 @@ class SortObjectSceneCfg(SingleArmTaskSceneCfg):
     scene: AssetBaseCfg = SORT_OBJECT_SCENE_CFG.replace(prim_path="{ENV_REGEX_NS}/Scene")
 
     # Area B: spawned from the same box USD at a new prim path.
-    # Area A (box) is extracted from scene.usd by parse_usd_and_create_subassets.
-    # Box A centre: (0.478, -0.310); Box B at (0.478, -0.158) → ~2 mm gap (almost touching).
+    # Area A (box) is extracted from scene.usd by parse_usd_and_create_subassets;
+    # its init_state.pos is overridden in SortObjectEnvCfg.__post_init__ to (0.478, -0.460).
+    # Box A centre: (0.478, -0.460); Box B centre: (0.478, -0.308) → ~2 mm gap (almost touching).
     box2: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/box2",
         spawn=sim_utils.UsdFileCfg(usd_path=_BOX_USD_PATH),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.478, -0.158, 0.046),
+            pos=(0.478, -0.308, 0.046),  # shifted -0.15 m in y (was -0.158); ≈ 0.36 m from robot
         ),
     )
 
@@ -222,6 +224,11 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
         # Always load the full scene.usd (cube is baked in and can't be excluded
         # at load time). Registering scene.cube lets us control its position.
         parse_usd_and_create_subassets(SORT_OBJECT_USD_PATH, self)
+
+        # Shift Box A 0.15 m closer to the robot in y (USD bakes it at y ≈ -0.310).
+        # Keep the z from the USD so it still rests on the table surface.
+        _box_z = self.scene.box.init_state.pos[2]
+        self.scene.box.init_state.pos = (0.478, -0.460, _box_z)
 
         if self.object_shape != "cube":
             # Add the procedural shape alongside the already-registered cube.

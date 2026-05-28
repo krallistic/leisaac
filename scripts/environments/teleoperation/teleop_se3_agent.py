@@ -175,20 +175,37 @@ def _open_second_viewport(env, sensor_or_path: str) -> None:
     prim path is resolved from the live scene, or a full USD prim path starting
     with '/'. Both viewport windows appear side-by-side in the WebRTC stream.
     """
+    print(f"[DEBUG] _open_second_viewport called with: '{sensor_or_path}'")
+
+    print("[DEBUG] importing omni.kit.viewport.utility ...")
     import omni.kit.viewport.utility as vp_utils
     from pxr import Sdf
+    print(f"[DEBUG] vp_utils = {vp_utils}")
 
     if sensor_or_path.startswith("/"):
         cam_path = sensor_or_path
+        print(f"[DEBUG] using raw prim path: {cam_path}")
     else:
+        print(f"[DEBUG] resolving sensor name '{sensor_or_path}' from env.scene ...")
+        print(f"[DEBUG] env.scene type: {type(env.scene)}")
         try:
-            cam_path = env.scene[sensor_or_path].prim_paths[0]
+            sensor = env.scene[sensor_or_path]
+            print(f"[DEBUG] sensor object: {sensor}")
+            print(f"[DEBUG] sensor type:   {type(sensor)}")
+            print(f"[DEBUG] sensor.prim_paths: {getattr(sensor, 'prim_paths', '<no attr>')}")
+            cam_path = sensor.prim_paths[0]
         except (KeyError, AttributeError, IndexError) as exc:
             print(f"[WARN] --second_viewport: cannot resolve sensor '{sensor_or_path}': {exc}")
+            print(f"[DEBUG] available scene keys: {list(env.scene._sensors.keys()) if hasattr(env.scene, '_sensors') else '<unknown>'}")
             return
 
+    print(f"[DEBUG] camera prim path resolved to: {cam_path}")
+    print("[DEBUG] calling create_viewport_window('Viewport 2') ...")
     vp2 = vp_utils.create_viewport_window("Viewport 2")
+    print(f"[DEBUG] vp2 window: {vp2}")
+    print(f"[DEBUG] vp2.viewport_api: {getattr(vp2, 'viewport_api', '<no attr>')}")
     vp2.viewport_api.camera_path = Sdf.Path(cam_path)
+    print(f"[DEBUG] camera_path set to: {vp2.viewport_api.camera_path}")
     print(f"[INFO] Second viewport opened — camera: {cam_path}")
 
 
@@ -367,6 +384,7 @@ def main():  # noqa: C901
     env.reset()
     teleop_interface.reset()
 
+    print(f"[DEBUG] args_cli.second_viewport = {args_cli.second_viewport!r}")
     if args_cli.second_viewport:
         _open_second_viewport(env, args_cli.second_viewport)
 
