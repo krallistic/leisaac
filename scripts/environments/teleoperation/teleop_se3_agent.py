@@ -388,7 +388,7 @@ def main():  # noqa: C901
     teleop_interface.add_callback("R", reset_recording_instance)
     teleop_interface.add_callback("N", reset_task_success)
 
-    paused = True  # starts paused; press B to begin each episode
+    paused = args_cli.record  # only pause between demos when recording; pure teleop starts immediately
 
     def resume_teleop():
         nonlocal paused
@@ -460,7 +460,7 @@ def main():  # noqa: C901
                     # returns False (no box occupied mid-episode), so the episode is
                     # saved as not-succeeded without an explicit override.
                     env.reset()
-                    paused = True
+                    paused = args_cli.record
                     if args_cli.record:
                         # Restore natural success detection in case N overrode it to
                         # all-ones; _natural_termination_success returns False for a
@@ -508,7 +508,7 @@ def main():  # noqa: C901
                     _, _, terminated, truncated, _ = env.step(actions)
                     # Auto-termination: env already reset inside step(); pause until B.
                     if (terminated | truncated).any():
-                        paused = True
+                        paused = args_cli.record
                         start_record_state = False
                         print("Episode ended. Press B to start next demo.")
                         if args_cli.record:
