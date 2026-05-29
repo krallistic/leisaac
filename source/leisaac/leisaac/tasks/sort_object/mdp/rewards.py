@@ -5,14 +5,16 @@ from isaaclab.assets import RigidObject
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 
-from .terminations import object_in_box
+from .terminations import object_in_box_at_position
 
 
 def placement_reward(
     env: ManagerBasedRLEnv,
     object_cfg: SceneEntityCfg,
-    correct_box_cfg: SceneEntityCfg,
-    wrong_box_cfg: SceneEntityCfg,
+    correct_box_x: float,
+    correct_box_y: float,
+    wrong_box_x: float,
+    wrong_box_y: float,
     x_range: tuple[float, float],
     y_range: tuple[float, float],
     height_threshold: float,
@@ -24,6 +26,8 @@ def placement_reward(
         1 = object dropped outside both boxes (after being lifted)
         0 = not yet placed / episode timed out
     Prints to console whenever a non-zero reward is assigned.
+    Box positions are passed as fixed env-local coordinates to avoid SceneEntityCfg
+    resolution issues with USD-sourced entities.
     """
     obj: RigidObject = env.scene[object_cfg.name]
     obj_z = obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
@@ -36,8 +40,12 @@ def placement_reward(
     lifted[env.episode_length_buf <= 1] = False
     lifted |= obj_z > lift_threshold
 
-    in_correct = object_in_box(env, object_cfg, correct_box_cfg, x_range, y_range, height_threshold)
-    in_wrong = object_in_box(env, object_cfg, wrong_box_cfg, x_range, y_range, height_threshold)
+    in_correct = object_in_box_at_position(
+        env, object_cfg, correct_box_x, correct_box_y, x_range, y_range, height_threshold
+    )
+    in_wrong = object_in_box_at_position(
+        env, object_cfg, wrong_box_x, wrong_box_y, x_range, y_range, height_threshold
+    )
 
     # Only classify as "dropped elsewhere" when the object is at rest, so that
     # actively lowering the object while still grasped doesn't fire prematurely.
