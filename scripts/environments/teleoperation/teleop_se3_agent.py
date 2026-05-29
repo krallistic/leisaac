@@ -132,6 +132,23 @@ from leisaac.enhance.managers import EnhanceDatasetExportMode, StreamingRecorder
 from leisaac.utils.env_utils import dynamic_reset_gripper_effort_limit_sim
 
 
+def _natural_termination_success(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """True when a natural (non-catastrophic) termination fires.
+    Registered last so correct_box / wrong_box / dropped_elsewhere are already
+    computed in the same TerminationManager.compute() call.
+    """
+    tm = env.termination_manager
+    result = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    for name in ("correct_box", "wrong_box", "dropped_elsewhere"):
+        try:
+            val = tm.get_term(name)
+            if val is not None:
+                result = result | val
+        except Exception:
+            pass
+    return result
+
+
 class RateLimiter:
     """Convenience class for enforcing rates in loops."""
 
@@ -284,9 +301,7 @@ def main():  # noqa: C901
         else:
             if not hasattr(env_cfg.terminations, "success"):
                 setattr(env_cfg.terminations, "success", None)
-            env_cfg.terminations.success = TerminationTermCfg(
-                func=lambda env: torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-            )
+            env_cfg.terminations.success = TerminationTermCfg(func=_natural_termination_success)
     else:
         env_cfg.recorders = None
 
@@ -372,6 +387,15 @@ def main():  # noqa: C901
 
     teleop_interface.add_callback("R", reset_recording_instance)
     teleop_interface.add_callback("N", reset_task_success)
+
+    paused = True  # starts paused; press B to begin each episode
+
+    def resume_teleop():
+        nonlocal paused
+        paused = False
+        print("Teleop started. Recording active." if args_cli.record else "Teleop started.")
+
+    teleop_interface.add_callback("B", resume_teleop)
     teleop_interface.display_controls()
     rate_limiter = RateLimiter(args_cli.step_hz)
 
@@ -380,6 +404,7 @@ def main():  # noqa: C901
         env.initialize()
     env.reset()
     teleop_interface.reset()
+    print("Press B to start teleop (resets arm to neutral first if needed).")
 
     if args_cli.second_viewport:
         _open_second_viewport(env, args_cli.second_viewport)
@@ -409,20 +434,45 @@ def main():  # noqa: C901
                 if env.cfg.dynamic_reset_gripper_effort_limit:
                     dynamic_reset_gripper_effort_limit_sim(env, args_cli.teleop_device)
                 actions = teleop_interface.advance()
+
+                # Track whether N (manual success) was pressed this iteration so the
+                # reset block below knows not to print "discarded".
+                _manual_success = False
+
+                # N: manual success override — kept as a fallback; auto-terminations
+                # handle the normal case via _natural_termination_success.
                 if should_reset_task_success:
                     print("Task Success!!!")
+                    _manual_success = True
                     should_reset_task_success = False
                     if args_cli.record:
                         manual_terminate(env, True)
+                    # should_reset_recording_instance is also True (set by reset_task_success)
+
+                # R: catastrophic discard — or follow-through from N press above.
                 if should_reset_recording_instance:
-                    env.reset()
                     should_reset_recording_instance = False
                     if start_record_state:
                         if args_cli.record:
                             print("Stop Recording!!!")
                         start_record_state = False
+                    # For a plain R press (no N), _natural_termination_success already
+                    # returns False (no box occupied mid-episode), so the episode is
+                    # saved as not-succeeded without an explicit override.
+                    env.reset()
+                    paused = True
                     if args_cli.record:
-                        manual_terminate(env, False)
+                        # Restore natural success detection in case N overrode it to
+                        # all-ones; _natural_termination_success returns False for a
+                        # freshly reset env so the next episode starts clean.
+                        env.termination_manager.set_term_cfg(
+                            "success", TerminationTermCfg(func=_natural_termination_success)
+                        )
+                        env.termination_manager.compute()
+                    if _manual_success:
+                        print("Episode saved. Press B to start next demo.")
+                    else:
+                        print("Episode discarded. Press B to start next demo.")
                     # print out the current demo count if it has changed
                     if (
                         args_cli.record
@@ -442,15 +492,43 @@ def main():  # noqa: C901
                         print(f"All {args_cli.num_demos} demonstrations recorded. Exiting the app.")
                         break
 
+                elif paused:
+                    # Waiting for B: render only, teleop suspended.
+                    env.render()
+
                 elif actions is None:
                     env.render()
+
                 # apply actions
                 else:
                     if not start_record_state:
                         if args_cli.record:
                             print("Start Recording!!!")
                         start_record_state = True
-                    env.step(actions)
+                    _, _, terminated, truncated, _ = env.step(actions)
+                    # Auto-termination: env already reset inside step(); pause until B.
+                    if (terminated | truncated).any():
+                        paused = True
+                        start_record_state = False
+                        print("Episode ended. Press B to start next demo.")
+                        if args_cli.record:
+                            if (
+                                env.recorder_manager.exported_successful_episode_count + resume_recorded_demo_count
+                                > current_recorded_demo_count
+                            ):
+                                current_recorded_demo_count = (
+                                    env.recorder_manager.exported_successful_episode_count
+                                    + resume_recorded_demo_count
+                                )
+                                print(f"Recorded {current_recorded_demo_count} successful demonstrations.")
+                            if (
+                                args_cli.num_demos > 0
+                                and env.recorder_manager.exported_successful_episode_count + resume_recorded_demo_count
+                                >= args_cli.num_demos
+                            ):
+                                print(f"All {args_cli.num_demos} demonstrations recorded. Exiting the app.")
+                                break
+
                 if rate_limiter:
                     rate_limiter.sleep(env)
             if interrupted:
