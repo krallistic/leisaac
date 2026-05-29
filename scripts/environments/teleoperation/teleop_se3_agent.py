@@ -59,18 +59,6 @@ parser.add_argument(
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed for the environment.")
-parser.add_argument(
-    "--object_shape",
-    type=str,
-    default=None,
-    help="Override object shape for sorting tasks (cube, rectangle, cylinder).",
-)
-parser.add_argument(
-    "--object_color",
-    type=str,
-    default=None,
-    help="Override object color for sorting tasks (red, green, blue, yellow).",
-)
 parser.add_argument("--sensitivity", type=float, default=1.0, help="Sensitivity factor.")
 
 # recorder_parameter
@@ -86,16 +74,6 @@ parser.add_argument(
 
 parser.add_argument("--recalibrate", action="store_true", help="recalibrate SO101-Leader or Bi-SO101Leader")
 parser.add_argument("--quality", action="store_true", help="whether to enable quality render mode.")
-parser.add_argument(
-    "--second_viewport",
-    type=str,
-    default=None,
-    metavar="SENSOR_OR_PATH",
-    help=(
-        "Open a second viewport in the streamed UI. Pass a scene sensor name (e.g. 'front', 'wrist') "
-        "or a full USD prim path. Useful for teleoperation depth perception."
-    ),
-)
 parser.add_argument("--use_lerobot_recorder", action="store_true", help="whether to use lerobot recorder.")
 parser.add_argument("--lerobot_dataset_repo_id", type=str, default=None, help="Lerobot Dataset repository ID.")
 parser.add_argument("--lerobot_dataset_fps", type=int, default=30, help="Lerobot Dataset frames per second.")
@@ -104,15 +82,6 @@ parser.add_argument("--lerobot_dataset_fps", type=int, default=30, help="Lerobot
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli = parser.parse_args()
-
-# Print before Kit boots so this is visible at the top of the log, not buried.
-import sys as _sys
-_sys.stderr.write("\n========== teleop_se3_agent startup ==========\n")
-_sys.stderr.write(f"  --second_viewport = {args_cli.second_viewport!r}\n")
-_sys.stderr.write(f"  --task            = {args_cli.task!r}\n")
-_sys.stderr.write(f"  --teleop_device   = {args_cli.teleop_device!r}\n")
-_sys.stderr.write("==============================================\n\n")
-_sys.stderr.flush()
 
 app_launcher_args = vars(args_cli)
 
@@ -130,23 +99,6 @@ from isaaclab.managers import DatasetExportMode, TerminationTermCfg
 from isaaclab_tasks.utils import parse_env_cfg
 from leisaac.enhance.managers import EnhanceDatasetExportMode, StreamingRecorderManager
 from leisaac.utils.env_utils import dynamic_reset_gripper_effort_limit_sim
-
-
-def _natural_termination_success(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """True when a natural (non-catastrophic) termination fires.
-    Registered last so correct_box / wrong_box / dropped_elsewhere are already
-    computed in the same TerminationManager.compute() call.
-    """
-    tm = env.termination_manager
-    result = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-    for name in ("correct_box", "wrong_box", "dropped_elsewhere"):
-        try:
-            val = tm.get_term(name)
-            if val is not None:
-                result = result | val
-        except Exception:
-            pass
-    return result
 
 
 class RateLimiter:
@@ -194,35 +146,6 @@ def manual_terminate(env: ManagerBasedRLEnv | DirectRLEnv, success: bool):
         env.cfg.return_success_status = success
 
 
-def _open_second_viewport(env, sensor_or_path: str) -> None:
-    """Open a second Kit viewport window pointed at a camera.
-
-    sensor_or_path: either a scene sensor name (e.g. 'front', 'wrist') whose
-    prim path is resolved from the live scene, or a full USD prim path starting
-    with '/'. Both viewport windows appear side-by-side in the WebRTC stream.
-    """
-    import omni.kit.viewport.utility as vp_utils
-    from pxr import Sdf
-
-    if sensor_or_path.startswith("/"):
-        cam_path = sensor_or_path
-    else:
-        try:
-            sensor = env.scene[sensor_or_path]
-            print(f"[VP2] sensor type: {type(sensor)}, prim_paths: {getattr(sensor, 'prim_paths', '<missing>')}")
-            cam_path = sensor.prim_paths[0]
-        except (KeyError, AttributeError, IndexError) as exc:
-            print(f"[VP2] ERROR: cannot resolve sensor '{sensor_or_path}': {exc}")
-            print(f"[VP2] available sensors: {list(env.scene._sensors.keys()) if hasattr(env.scene, '_sensors') else '<unknown>'}")
-            return
-
-    print(f"[VP2] camera path: {cam_path}")
-    vp2 = vp_utils.create_viewport_window("Viewport 2")
-    print(f"[VP2] viewport_api: {getattr(vp2, 'viewport_api', '<missing>')}")
-    vp2.viewport_api.camera_path = Sdf.Path(cam_path)
-    print(f"[VP2] done — camera set to: {vp2.viewport_api.camera_path}")
-
-
 def main():  # noqa: C901
     """Running lerobot teleoperation with leisaac manipulation environment."""
 
@@ -234,14 +157,6 @@ def main():  # noqa: C901
         os.makedirs(output_dir)
 
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
-
-    # Apply sorting-task overrides when --object_shape / --object_color are given.
-    # Works for any task whose config exposes apply_object_variant(); ignored otherwise.
-    if (args_cli.object_shape or args_cli.object_color) and hasattr(env_cfg, "apply_object_variant"):
-        shape = args_cli.object_shape or env_cfg.object_shape
-        color = args_cli.object_color or env_cfg.object_color
-        env_cfg.apply_object_variant(shape, color)
-
     env_cfg.use_teleop_device(args_cli.teleop_device)
     env_cfg.seed = args_cli.seed if args_cli.seed is not None else int(time.time())
     task_name = args_cli.task
@@ -301,7 +216,9 @@ def main():  # noqa: C901
         else:
             if not hasattr(env_cfg.terminations, "success"):
                 setattr(env_cfg.terminations, "success", None)
-            env_cfg.terminations.success = TerminationTermCfg(func=_natural_termination_success)
+            env_cfg.terminations.success = TerminationTermCfg(
+                func=lambda env: torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+            )
     else:
         env_cfg.recorders = None
 
@@ -387,15 +304,6 @@ def main():  # noqa: C901
 
     teleop_interface.add_callback("R", reset_recording_instance)
     teleop_interface.add_callback("N", reset_task_success)
-
-    paused = args_cli.record  # only pause between demos when recording; pure teleop starts immediately
-
-    def resume_teleop():
-        nonlocal paused
-        paused = False
-        print("Teleop started. Recording active." if args_cli.record else "Teleop started.")
-
-    teleop_interface.add_callback("B", resume_teleop)
     teleop_interface.display_controls()
     rate_limiter = RateLimiter(args_cli.step_hz)
 
@@ -404,10 +312,6 @@ def main():  # noqa: C901
         env.initialize()
     env.reset()
     teleop_interface.reset()
-    print("Press B to start teleop (resets arm to neutral first if needed).")
-
-    if args_cli.second_viewport:
-        _open_second_viewport(env, args_cli.second_viewport)
 
     resume_recorded_demo_count = 0
     if args_cli.record and args_cli.resume:
@@ -434,45 +338,20 @@ def main():  # noqa: C901
                 if env.cfg.dynamic_reset_gripper_effort_limit:
                     dynamic_reset_gripper_effort_limit_sim(env, args_cli.teleop_device)
                 actions = teleop_interface.advance()
-
-                # Track whether N (manual success) was pressed this iteration so the
-                # reset block below knows not to print "discarded".
-                _manual_success = False
-
-                # N: manual success override — kept as a fallback; auto-terminations
-                # handle the normal case via _natural_termination_success.
                 if should_reset_task_success:
                     print("Task Success!!!")
-                    _manual_success = True
                     should_reset_task_success = False
                     if args_cli.record:
                         manual_terminate(env, True)
-                    # should_reset_recording_instance is also True (set by reset_task_success)
-
-                # R: catastrophic discard — or follow-through from N press above.
                 if should_reset_recording_instance:
+                    env.reset()
                     should_reset_recording_instance = False
                     if start_record_state:
                         if args_cli.record:
                             print("Stop Recording!!!")
                         start_record_state = False
-                    # For a plain R press (no N), _natural_termination_success already
-                    # returns False (no box occupied mid-episode), so the episode is
-                    # saved as not-succeeded without an explicit override.
-                    env.reset()
-                    paused = args_cli.record
                     if args_cli.record:
-                        # Restore natural success detection in case N overrode it to
-                        # all-ones; _natural_termination_success returns False for a
-                        # freshly reset env so the next episode starts clean.
-                        env.termination_manager.set_term_cfg(
-                            "success", TerminationTermCfg(func=_natural_termination_success)
-                        )
-                        env.termination_manager.compute()
-                    if _manual_success:
-                        print("Episode saved. Press B to start next demo.")
-                    else:
-                        print("Episode discarded. Press B to start next demo.")
+                        manual_terminate(env, False)
                     # print out the current demo count if it has changed
                     if (
                         args_cli.record
@@ -492,43 +371,15 @@ def main():  # noqa: C901
                         print(f"All {args_cli.num_demos} demonstrations recorded. Exiting the app.")
                         break
 
-                elif paused:
-                    # Waiting for B: render only, teleop suspended.
-                    env.render()
-
                 elif actions is None:
                     env.render()
-
                 # apply actions
                 else:
                     if not start_record_state:
                         if args_cli.record:
                             print("Start Recording!!!")
                         start_record_state = True
-                    _, _, terminated, truncated, _ = env.step(actions)
-                    # Auto-termination: env already reset inside step(); pause until B.
-                    if (terminated | truncated).any():
-                        paused = args_cli.record
-                        start_record_state = False
-                        print("Episode ended. Press B to start next demo.")
-                        if args_cli.record:
-                            if (
-                                env.recorder_manager.exported_successful_episode_count + resume_recorded_demo_count
-                                > current_recorded_demo_count
-                            ):
-                                current_recorded_demo_count = (
-                                    env.recorder_manager.exported_successful_episode_count
-                                    + resume_recorded_demo_count
-                                )
-                                print(f"Recorded {current_recorded_demo_count} successful demonstrations.")
-                            if (
-                                args_cli.num_demos > 0
-                                and env.recorder_manager.exported_successful_episode_count + resume_recorded_demo_count
-                                >= args_cli.num_demos
-                            ):
-                                print(f"All {args_cli.num_demos} demonstrations recorded. Exiting the app.")
-                                break
-
+                    env.step(actions)
                 if rate_limiter:
                     rate_limiter.sleep(env)
             if interrupted:
