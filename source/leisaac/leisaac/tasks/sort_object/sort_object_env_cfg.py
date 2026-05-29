@@ -2,6 +2,7 @@ from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
+from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
@@ -16,6 +17,7 @@ from ..template import (
     SingleArmTaskSceneCfg,
     SingleArmTerminationsCfg,
 )
+from ..template.single_arm_env_cfg import SingleArmRewardsCfg
 from . import mdp
 
 _BOX_USD_PATH = str(Path(SORT_OBJECT_USD_PATH).parent / "box" / "box.usd")
@@ -152,10 +154,32 @@ class SortObjectSceneCfg(SingleArmTaskSceneCfg):
 
 
 @configclass
-class TerminationsCfg(SingleArmTerminationsCfg):
-    """Terminates successfully when the object is placed in the correct target box.
+class SortObjectRewardsCfg(SingleArmRewardsCfg):
+    """Sparse placement reward for the sort-object task.
 
-    Both box_cfg and object_cfg are overridden in SortObjectEnvCfg.__post_init__
+    All SceneEntityCfg params are replaced in SortObjectEnvCfg.__post_init__
+    based on object_shape and object_color.
+    """
+
+    placement: RewTerm = RewTerm(
+        func=mdp.placement_reward,
+        weight=1.0,
+        params={
+            "object_cfg":      SceneEntityCfg("cube"),   # replaced in __post_init__
+            "correct_box_cfg": SceneEntityCfg("box"),    # replaced in __post_init__
+            "wrong_box_cfg":   SceneEntityCfg("box2"),   # replaced in __post_init__
+            "x_range":         (-0.065, 0.065),
+            "y_range":         (-0.065, 0.065),
+            "height_threshold": 0.10,
+        },
+    )
+
+
+@configclass
+class TerminationsCfg(SingleArmTerminationsCfg):
+    """Terminates on success, wrong-box, dropped-elsewhere, or timeout.
+
+    SceneEntityCfg params are overridden in SortObjectEnvCfg.__post_init__
     based on object_shape and object_color.
     """
 
@@ -168,6 +192,29 @@ class TerminationsCfg(SingleArmTerminationsCfg):
             "x_range": (-0.065, 0.065),
             "y_range": (-0.065, 0.065),
             # box top ≈ 0.046 + 0.050 = 0.096 m; object resting inside ≈ 0.062 m
+            "height_threshold": 0.10,
+        },
+    )
+
+    wrong_box = DoneTerm(
+        func=mdp.object_in_box,
+        params={
+            "object_cfg": SceneEntityCfg("cube"),   # replaced in __post_init__
+            "box_cfg":    SceneEntityCfg("box2"),   # replaced in __post_init__ (wrong box)
+            "x_range":    (-0.065, 0.065),
+            "y_range":    (-0.065, 0.065),
+            "height_threshold": 0.10,
+        },
+    )
+
+    dropped_elsewhere = DoneTerm(
+        func=mdp.object_dropped_elsewhere,
+        params={
+            "object_cfg": SceneEntityCfg("cube"),  # replaced in __post_init__
+            "box_a_cfg":  SceneEntityCfg("box"),
+            "box_b_cfg":  SceneEntityCfg("box2"),
+            "x_range":    (-0.065, 0.065),
+            "y_range":    (-0.065, 0.065),
             "height_threshold": 0.10,
         },
     )
@@ -187,6 +234,8 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
 
     observations: SingleArmObservationsCfg = SingleArmObservationsCfg()
 
+    rewards: SortObjectRewardsCfg = SortObjectRewardsCfg()
+
     terminations: TerminationsCfg = TerminationsCfg()
 
     object_shape: str = "cube"
@@ -204,8 +253,17 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
         self.object_color = color
 
         target_box = _sorting_target(shape, color)
+        wrong_box = "box2" if target_box == "box" else "box"
+
         self.terminations.success.params["box_cfg"]    = SceneEntityCfg(target_box)
         self.terminations.success.params["object_cfg"] = SceneEntityCfg(shape)
+        self.terminations.wrong_box.params["box_cfg"]    = SceneEntityCfg(wrong_box)
+        self.terminations.wrong_box.params["object_cfg"] = SceneEntityCfg(shape)
+        self.terminations.dropped_elsewhere.params["object_cfg"] = SceneEntityCfg(shape)
+
+        self.rewards.placement.params["object_cfg"]      = SceneEntityCfg(shape)
+        self.rewards.placement.params["correct_box_cfg"] = SceneEntityCfg(target_box)
+        self.rewards.placement.params["wrong_box_cfg"]   = SceneEntityCfg(wrong_box)
 
         # Update the object-reset event term (domain_randomize_0) to the new prim name.
         if hasattr(self.events, "domain_randomize_0"):
@@ -215,6 +273,8 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+
+        self.episode_length_s = 30.0
 
         self.viewer.eye = (-0.2, -1.0, 0.5)
         self.viewer.lookat = (0.6, 0.0, -0.2)
@@ -235,10 +295,19 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
             setattr(self.scene, self.object_shape,
                     _make_procedural_object_cfg(self.object_shape, self.object_color))
 
-        # Wire the termination to the correct target box and object prim.
+        # Wire terminations and rewards to the correct target/wrong boxes and object prim.
         target_box = _sorting_target(self.object_shape, self.object_color)
+        wrong_box = "box2" if target_box == "box" else "box"
+
         self.terminations.success.params["box_cfg"]    = SceneEntityCfg(target_box)
         self.terminations.success.params["object_cfg"] = SceneEntityCfg(self.object_shape)
+        self.terminations.wrong_box.params["box_cfg"]    = SceneEntityCfg(wrong_box)
+        self.terminations.wrong_box.params["object_cfg"] = SceneEntityCfg(self.object_shape)
+        self.terminations.dropped_elsewhere.params["object_cfg"] = SceneEntityCfg(self.object_shape)
+
+        self.rewards.placement.params["object_cfg"]      = SceneEntityCfg(self.object_shape)
+        self.rewards.placement.params["correct_box_cfg"] = SceneEntityCfg(target_box)
+        self.rewards.placement.params["wrong_box_cfg"]   = SceneEntityCfg(wrong_box)
 
         _print_startup_info(self.object_shape, self.object_color, target_box)
 

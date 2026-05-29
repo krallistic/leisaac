@@ -29,3 +29,39 @@ def object_in_box(
     below_height = obj_z < height_threshold
 
     return in_x & in_y & below_height
+
+
+def object_dropped_elsewhere(
+    env: ManagerBasedRLEnv,
+    object_cfg: SceneEntityCfg,
+    box_a_cfg: SceneEntityCfg,
+    box_b_cfg: SceneEntityCfg,
+    x_range: tuple[float, float],
+    y_range: tuple[float, float],
+    height_threshold: float,
+    lift_threshold: float = 0.15,
+) -> torch.Tensor:
+    """True when the object was lifted above lift_threshold and then came to rest
+    outside the footprints of both boxes (i.e. dropped on the table or fell off it).
+    Uses a per-episode 'lifted' flag (shared key with rewards.py) so the spawn
+    position on the table never triggers a false positive at episode start.
+    """
+    obj: RigidObject = env.scene[object_cfg.name]
+    obj_z = obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
+
+    flag_key = f"_sort_lifted_{object_cfg.name}"
+    if not hasattr(env, flag_key) or getattr(env, flag_key).shape[0] != env.num_envs:
+        setattr(env, flag_key, torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))
+    lifted: torch.Tensor = getattr(env, flag_key)
+    lifted[env.episode_length_buf <= 1] = False
+    lifted |= obj_z > lift_threshold
+
+    in_a = object_in_box(env, object_cfg, box_a_cfg, x_range, y_range, height_threshold)
+    in_b = object_in_box(env, object_cfg, box_b_cfg, x_range, y_range, height_threshold)
+
+    # Require the object to be at rest so that actively holding or lowering the
+    # object through this z band (while still grasped) doesn't fire prematurely.
+    speed = obj.data.root_lin_vel_w.norm(dim=-1)
+    at_rest = speed < 0.05  # m/s
+
+    return lifted & (obj_z < height_threshold) & at_rest & ~in_a & ~in_b
