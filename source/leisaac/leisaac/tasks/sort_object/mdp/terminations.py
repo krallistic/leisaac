@@ -37,7 +37,7 @@ def object_in_box(
 
 def object_in_box_at_position(
     env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg,
+    object_name: str,
     box_x: float,
     box_y: float,
     x_range: tuple[float, float],
@@ -45,10 +45,11 @@ def object_in_box_at_position(
     height_threshold: float,
 ) -> torch.Tensor:
     """True when the object is within x/y range of a fixed env-local box centre and below height_threshold.
-    Uses hardcoded box coordinates instead of a SceneEntityCfg lookup, so it works reliably even
-    for USD-sourced entities that are added to the scene config dynamically.
+    Accepts the object entity name as a plain str (not SceneEntityCfg) so that no manager-side
+    resolution takes place — the scene lookup happens at call time and works for all entity types,
+    including those added dynamically to the scene config (USD-sourced or procedural).
     """
-    obj: RigidObject = env.scene[object_cfg.name]
+    obj: RigidObject = env.scene[object_name]
     obj_x = obj.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
     obj_y = obj.data.root_pos_w[:, 1] - env.scene.env_origins[:, 1]
     obj_z = obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
@@ -61,7 +62,7 @@ def object_in_box_at_position(
 
 def object_dropped_elsewhere(
     env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg,
+    object_name: str,
     box_a_x: float,
     box_a_y: float,
     box_b_x: float,
@@ -73,22 +74,22 @@ def object_dropped_elsewhere(
 ) -> torch.Tensor:
     """True when the object was lifted above lift_threshold and then came to rest
     outside the footprints of both boxes (i.e. dropped on the table or fell off it).
-    Uses a per-episode 'lifted' flag (shared key with rewards.py) so the spawn
-    position on the table never triggers a false positive at episode start.
-    Box positions are passed as fixed coordinates to avoid SceneEntityCfg resolution issues.
+    Uses a per-episode 'lifted' flag so the spawn position on the table never triggers
+    a false positive at episode start.  object_name is a plain str to avoid SceneEntityCfg
+    resolution failures for dynamically-added entities.
     """
-    obj: RigidObject = env.scene[object_cfg.name]
+    obj: RigidObject = env.scene[object_name]
     obj_z = obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
 
-    flag_key = f"_sort_lifted_{object_cfg.name}"
+    flag_key = f"_sort_lifted_{object_name}"
     if not hasattr(env, flag_key) or getattr(env, flag_key).shape[0] != env.num_envs:
         setattr(env, flag_key, torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))
     lifted: torch.Tensor = getattr(env, flag_key)
     lifted[env.episode_length_buf <= 1] = False
     lifted |= obj_z > lift_threshold
 
-    in_a = object_in_box_at_position(env, object_cfg, box_a_x, box_a_y, x_range, y_range, height_threshold)
-    in_b = object_in_box_at_position(env, object_cfg, box_b_x, box_b_y, x_range, y_range, height_threshold)
+    in_a = object_in_box_at_position(env, object_name, box_a_x, box_a_y, x_range, y_range, height_threshold)
+    in_b = object_in_box_at_position(env, object_name, box_b_x, box_b_y, x_range, y_range, height_threshold)
 
     # Require the object to be at rest so that actively holding or lowering the
     # object through this z band (while still grasped) doesn't fire prematurely.
