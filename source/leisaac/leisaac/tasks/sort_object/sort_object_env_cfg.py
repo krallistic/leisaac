@@ -171,11 +171,11 @@ class SortObjectRewardsCfg(SingleArmRewardsCfg):
         func=mdp.placement_reward,
         weight=1.0,
         params={
-            "object_cfg":      SceneEntityCfg("cube"),  # replaced in __post_init__
-            "correct_box_x":   _BOX_A_POS[0],           # replaced in __post_init__
-            "correct_box_y":   _BOX_A_POS[1],           # replaced in __post_init__
-            "wrong_box_x":     _BOX_B_POS[0],           # replaced in __post_init__
-            "wrong_box_y":     _BOX_B_POS[1],           # replaced in __post_init__
+            "object_name":     "cube",            # replaced in __post_init__
+            "correct_box_x":   _BOX_A_POS[0],    # replaced in __post_init__
+            "correct_box_y":   _BOX_A_POS[1],    # replaced in __post_init__
+            "wrong_box_x":     _BOX_B_POS[0],    # replaced in __post_init__
+            "wrong_box_y":     _BOX_B_POS[1],    # replaced in __post_init__
             "x_range":         (-0.065, 0.065),
             "y_range":         (-0.065, 0.065),
             "height_threshold": 0.10,
@@ -185,19 +185,20 @@ class SortObjectRewardsCfg(SingleArmRewardsCfg):
 
 @configclass
 class TerminationsCfg(SingleArmTerminationsCfg):
-    """Terminates on success, wrong-box, dropped-elsewhere, or timeout.
+    """Terminates on correct-box, wrong-box, dropped-elsewhere, or timeout.
 
-    All box positions and object_cfg are replaced in SortObjectEnvCfg.__post_init__.
-    Fixed-coordinate functions are used for box detection to avoid SceneEntityCfg
-    resolution failures for USD-sourced entities added dynamically to the scene config.
+    All box positions and object_name are replaced in SortObjectEnvCfg.__post_init__.
+    Functions take object_name as a plain str (not SceneEntityCfg) so that no
+    manager-side entity resolution takes place — the scene lookup happens at call time
+    and works for dynamically-added entities (USD-sourced and procedural shapes).
     """
 
-    success = DoneTerm(
+    correct_box = DoneTerm(
         func=mdp.object_in_box_at_position,
         params={
-            "object_cfg":       SceneEntityCfg("cube"),  # replaced in __post_init__
-            "box_x":            _BOX_A_POS[0],            # replaced in __post_init__
-            "box_y":            _BOX_A_POS[1],            # replaced in __post_init__
+            "object_name":      "cube",           # replaced in __post_init__
+            "box_x":            _BOX_A_POS[0],    # replaced in __post_init__
+            "box_y":            _BOX_A_POS[1],    # replaced in __post_init__
             # box footprint ±0.075 m; ±0.065 requires a reasonably centred placement
             "x_range":          (-0.065, 0.065),
             "y_range":          (-0.065, 0.065),
@@ -209,9 +210,9 @@ class TerminationsCfg(SingleArmTerminationsCfg):
     wrong_box = DoneTerm(
         func=mdp.object_in_box_at_position,
         params={
-            "object_cfg":       SceneEntityCfg("cube"),  # replaced in __post_init__
-            "box_x":            _BOX_B_POS[0],            # replaced in __post_init__
-            "box_y":            _BOX_B_POS[1],            # replaced in __post_init__
+            "object_name":      "cube",           # replaced in __post_init__
+            "box_x":            _BOX_B_POS[0],    # replaced in __post_init__
+            "box_y":            _BOX_B_POS[1],    # replaced in __post_init__
             "x_range":          (-0.065, 0.065),
             "y_range":          (-0.065, 0.065),
             "height_threshold": 0.10,
@@ -221,7 +222,7 @@ class TerminationsCfg(SingleArmTerminationsCfg):
     dropped_elsewhere = DoneTerm(
         func=mdp.object_dropped_elsewhere,
         params={
-            "object_cfg":       SceneEntityCfg("cube"),  # replaced in __post_init__
+            "object_name":      "cube",           # replaced in __post_init__
             "box_a_x":          _BOX_A_POS[0],
             "box_a_y":          _BOX_A_POS[1],
             "box_b_x":          _BOX_B_POS[0],
@@ -269,19 +270,19 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
         correct_pos = _BOX_A_POS if target_box == "box" else _BOX_B_POS
         wrong_pos   = _BOX_B_POS if target_box == "box" else _BOX_A_POS
 
-        self.terminations.success.params["object_cfg"] = SceneEntityCfg(shape)
-        self.terminations.success.params["box_x"]      = correct_pos[0]
-        self.terminations.success.params["box_y"]      = correct_pos[1]
-        self.terminations.wrong_box.params["object_cfg"] = SceneEntityCfg(shape)
-        self.terminations.wrong_box.params["box_x"]      = wrong_pos[0]
-        self.terminations.wrong_box.params["box_y"]      = wrong_pos[1]
-        self.terminations.dropped_elsewhere.params["object_cfg"] = SceneEntityCfg(shape)
+        self.terminations.correct_box.params["object_name"] = shape
+        self.terminations.correct_box.params["box_x"]       = correct_pos[0]
+        self.terminations.correct_box.params["box_y"]       = correct_pos[1]
+        self.terminations.wrong_box.params["object_name"]   = shape
+        self.terminations.wrong_box.params["box_x"]         = wrong_pos[0]
+        self.terminations.wrong_box.params["box_y"]         = wrong_pos[1]
+        self.terminations.dropped_elsewhere.params["object_name"] = shape
 
-        self.rewards.placement.params["object_cfg"]    = SceneEntityCfg(shape)
-        self.rewards.placement.params["correct_box_x"] = correct_pos[0]
-        self.rewards.placement.params["correct_box_y"] = correct_pos[1]
-        self.rewards.placement.params["wrong_box_x"]   = wrong_pos[0]
-        self.rewards.placement.params["wrong_box_y"]   = wrong_pos[1]
+        self.rewards.placement.params["object_name"]    = shape
+        self.rewards.placement.params["correct_box_x"]  = correct_pos[0]
+        self.rewards.placement.params["correct_box_y"]  = correct_pos[1]
+        self.rewards.placement.params["wrong_box_x"]    = wrong_pos[0]
+        self.rewards.placement.params["wrong_box_y"]    = wrong_pos[1]
 
         # Update the object-reset event term (domain_randomize_0) to the new prim name.
         if hasattr(self.events, "domain_randomize_0"):
@@ -320,19 +321,19 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
         correct_pos = _BOX_A_POS if target_box == "box" else _BOX_B_POS
         wrong_pos   = _BOX_B_POS if target_box == "box" else _BOX_A_POS
 
-        self.terminations.success.params["object_cfg"] = SceneEntityCfg(self.object_shape)
-        self.terminations.success.params["box_x"]      = correct_pos[0]
-        self.terminations.success.params["box_y"]      = correct_pos[1]
-        self.terminations.wrong_box.params["object_cfg"] = SceneEntityCfg(self.object_shape)
-        self.terminations.wrong_box.params["box_x"]      = wrong_pos[0]
-        self.terminations.wrong_box.params["box_y"]      = wrong_pos[1]
-        self.terminations.dropped_elsewhere.params["object_cfg"] = SceneEntityCfg(self.object_shape)
+        self.terminations.correct_box.params["object_name"] = self.object_shape
+        self.terminations.correct_box.params["box_x"]      = correct_pos[0]
+        self.terminations.correct_box.params["box_y"]      = correct_pos[1]
+        self.terminations.wrong_box.params["object_name"]   = self.object_shape
+        self.terminations.wrong_box.params["box_x"]         = wrong_pos[0]
+        self.terminations.wrong_box.params["box_y"]         = wrong_pos[1]
+        self.terminations.dropped_elsewhere.params["object_name"] = self.object_shape
 
-        self.rewards.placement.params["object_cfg"]    = SceneEntityCfg(self.object_shape)
-        self.rewards.placement.params["correct_box_x"] = correct_pos[0]
-        self.rewards.placement.params["correct_box_y"] = correct_pos[1]
-        self.rewards.placement.params["wrong_box_x"]   = wrong_pos[0]
-        self.rewards.placement.params["wrong_box_y"]   = wrong_pos[1]
+        self.rewards.placement.params["object_name"]    = self.object_shape
+        self.rewards.placement.params["correct_box_x"]  = correct_pos[0]
+        self.rewards.placement.params["correct_box_y"]  = correct_pos[1]
+        self.rewards.placement.params["wrong_box_x"]    = wrong_pos[0]
+        self.rewards.placement.params["wrong_box_y"]    = wrong_pos[1]
 
         _print_startup_info(self.object_shape, self.object_color, target_box)
 

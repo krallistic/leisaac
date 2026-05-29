@@ -3,14 +3,13 @@ from __future__ import annotations
 import torch
 from isaaclab.assets import RigidObject
 from isaaclab.envs import ManagerBasedRLEnv
-from isaaclab.managers import SceneEntityCfg
 
 from .terminations import object_in_box_at_position
 
 
 def placement_reward(
     env: ManagerBasedRLEnv,
-    object_cfg: SceneEntityCfg,
+    object_name: str,
     correct_box_x: float,
     correct_box_y: float,
     wrong_box_x: float,
@@ -29,11 +28,11 @@ def placement_reward(
     Box positions are passed as fixed env-local coordinates to avoid SceneEntityCfg
     resolution issues with USD-sourced entities.
     """
-    obj: RigidObject = env.scene[object_cfg.name]
+    obj: RigidObject = env.scene[object_name]
     obj_z = obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
 
     # Per-episode lifted tracker (shared key with terminations.py)
-    flag_key = f"_sort_lifted_{object_cfg.name}"
+    flag_key = f"_sort_lifted_{object_name}"
     if not hasattr(env, flag_key) or getattr(env, flag_key).shape[0] != env.num_envs:
         setattr(env, flag_key, torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))
     lifted: torch.Tensor = getattr(env, flag_key)
@@ -41,10 +40,10 @@ def placement_reward(
     lifted |= obj_z > lift_threshold
 
     in_correct = object_in_box_at_position(
-        env, object_cfg, correct_box_x, correct_box_y, x_range, y_range, height_threshold
+        env, object_name, correct_box_x, correct_box_y, x_range, y_range, height_threshold
     )
     in_wrong = object_in_box_at_position(
-        env, object_cfg, wrong_box_x, wrong_box_y, x_range, y_range, height_threshold
+        env, object_name, wrong_box_x, wrong_box_y, x_range, y_range, height_threshold
     )
 
     # Only classify as "dropped elsewhere" when the object is at rest, so that
