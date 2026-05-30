@@ -257,7 +257,7 @@ def main():  # noqa: C901
             env.recorder_manager = LeRobotRecorderManager(env_cfg.recorders, dataset_cfg, env)
         else:
             env.recorder_manager = StreamingRecorderManager(env_cfg.recorders, env)
-            env.recorder_manager.flush_steps = 100
+            env.recorder_manager.flush_steps = 10
             env.recorder_manager.compression = "lzf"
 
     # create controller
