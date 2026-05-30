@@ -20,7 +20,8 @@ from ..template import (
 from ..template.single_arm_env_cfg import SingleArmRewardsCfg
 from . import mdp
 
-_BOX_USD_PATH = str(Path(SORT_OBJECT_USD_PATH).parent / "box" / "box.usd")
+_BOX_USD_PATH  = str(Path(SORT_OBJECT_USD_PATH).parent / "box"  / "box.usd")
+_CUBE_USD_PATH = str(Path(SORT_OBJECT_USD_PATH).parent / "cube" / "cube.usd")
 
 # Five candidate spawn positions in env-local frame (x, y, z).
 # Table surface z ≈ 0.04 m; cube rests at z ≈ 0.062 m.
@@ -312,6 +313,22 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
         _box_z = self.scene.box.init_state.pos[2]
         self.scene.box.init_state.pos = (0.478, -0.460, _box_z)
 
+        # The cube baked into scene.usd is always red.  For non-red cube variants,
+        # park the scene.usd cube and spawn a fresh one with a material override.
+        if self.object_shape == "cube" and self.object_color != "red":
+            self.scene.cube_scene = self.scene.cube
+            self.scene.cube_scene.init_state.pos = _CUBE_PARKED_LOCATION
+            self.scene.cube = RigidObjectCfg(
+                prim_path="{ENV_REGEX_NS}/cube",
+                spawn=sim_utils.UsdFileCfg(
+                    usd_path=_CUBE_USD_PATH,
+                    visual_material=sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=_COLOR_RGB[self.object_color]
+                    ),
+                ),
+                init_state=RigidObjectCfg.InitialStateCfg(pos=_OBJECT_SPAWN_LOCATIONS[0]),
+            )
+
         if self.object_shape != "cube":
             # Add the procedural shape alongside the already-registered cube.
             setattr(self.scene, self.object_shape,
@@ -352,6 +369,15 @@ class SortObjectEnvCfg(SingleArmTaskEnvCfg):
             reset_events.append(
                 mdp.discrete_location_term(
                     "cube",
+                    locations=[_CUBE_PARKED_LOCATION],
+                    position_noise_std=0.0,
+                )
+            )
+        elif self.object_color != "red":
+            # The scene.usd cube (now "cube_scene") must stay parked each episode.
+            reset_events.append(
+                mdp.discrete_location_term(
+                    "cube_scene",
                     locations=[_CUBE_PARKED_LOCATION],
                     position_noise_std=0.0,
                 )
