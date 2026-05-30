@@ -204,6 +204,7 @@ class TerminationsCfg(SingleArmTerminationsCfg):
             "y_range":          (-0.065, 0.065),
             # box top ≈ 0.046 + 0.050 = 0.096 m; object resting inside ≈ 0.062 m
             "height_threshold": 0.08,
+            "post_term_delay":  60,
         },
     )
 
@@ -216,6 +217,7 @@ class TerminationsCfg(SingleArmTerminationsCfg):
             "x_range":          (-0.065, 0.065),
             "y_range":          (-0.065, 0.065),
             "height_threshold": 0.08,
+            "post_term_delay":  60,
         },
     )
 
@@ -230,6 +232,7 @@ class TerminationsCfg(SingleArmTerminationsCfg):
             "x_range":          (-0.065, 0.065),
             "y_range":          (-0.065, 0.065),
             "height_threshold": 0.08,
+            "post_term_delay":  60,
         },
     )
 
