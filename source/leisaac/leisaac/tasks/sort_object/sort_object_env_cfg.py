@@ -178,7 +178,7 @@ class SortObjectRewardsCfg(SingleArmRewardsCfg):
             "wrong_box_y":     _BOX_B_POS[1],    # replaced in __post_init__
             "x_range":         (-0.065, 0.065),
             "y_range":         (-0.065, 0.065),
-            "height_threshold": 0.10,
+            "height_threshold": 0.08,
         },
     )
 
@@ -203,7 +203,7 @@ class TerminationsCfg(SingleArmTerminationsCfg):
             "x_range":          (-0.065, 0.065),
             "y_range":          (-0.065, 0.065),
             # box top ≈ 0.046 + 0.050 = 0.096 m; object resting inside ≈ 0.062 m
-            "height_threshold": 0.10,
+            "height_threshold": 0.08,
         },
     )
 
@@ -215,7 +215,7 @@ class TerminationsCfg(SingleArmTerminationsCfg):
             "box_y":            _BOX_B_POS[1],    # replaced in __post_init__
             "x_range":          (-0.065, 0.065),
             "y_range":          (-0.065, 0.065),
-            "height_threshold": 0.10,
+            "height_threshold": 0.08,
         },
     )
 
@@ -229,7 +229,7 @@ class TerminationsCfg(SingleArmTerminationsCfg):
             "box_b_y":          _BOX_B_POS[1],
             "x_range":          (-0.065, 0.065),
             "y_range":          (-0.065, 0.065),
-            "height_threshold": 0.10,
+            "height_threshold": 0.08,
         },
     )
 

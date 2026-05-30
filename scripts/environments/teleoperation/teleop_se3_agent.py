@@ -448,6 +448,14 @@ def main():  # noqa: C901
         # finalize the recorder manager
         if args_cli.record and hasattr(env.recorder_manager, "finalize"):
             env.recorder_manager.finalize()
+        # Disable debug visualisation before closing so the live-visualizer UI
+        # callback doesn't fire after SimulationContext is already destroyed
+        # (IsaacLab shutdown-sequence issue: NoneType has no attribute 'is_playing').
+        try:
+            if hasattr(env, "set_debug_vis"):
+                env.set_debug_vis(False)
+        except Exception:
+            pass
         # close the simulator
         env.close()
         simulation_app.close()
